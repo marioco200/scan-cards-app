@@ -95,10 +95,13 @@ export default function Home() {
         throw new Error(surveyError?.message || 'Survey not found')
       }
 
-      const { data: submission, error: submissionError } = await supabase
+      const submissionId = crypto.randomUUID()
+
+      const { error: submissionError } = await supabase
         .from('submissions')
         .insert([
           {
+            id: submissionId,
             survey_id: surveyRow.id,
             name: form.name.trim(),
             location: form.location.trim(),
@@ -109,17 +112,15 @@ export default function Home() {
             status: 'new'
           }
         ])
-        .select()
-        .single()
 
-      if (submissionError || !submission) {
-        throw new Error(submissionError?.message || 'Failed to save submission')
+      if (submissionError) {
+        throw new Error(submissionError.message || 'Failed to save submission')
       }
 
       if (file) {
         const fileExt = file.name.split('.').pop() || 'jpg'
         const safeExt = fileExt.toLowerCase()
-        const filePath = `${submission.id}/photo.${safeExt}`
+        const filePath = `${submissionId}/photo.${safeExt}`
 
         const { error: uploadError } = await supabase.storage
           .from('incident-photos')
@@ -140,7 +141,7 @@ export default function Home() {
           .from('submission_images')
           .insert([
             {
-              submission_id: submission.id,
+              submission_id: submissionId,
               file_name: file.name,
               file_path: filePath,
               file_url: publicUrlData.publicUrl,
@@ -174,7 +175,7 @@ export default function Home() {
             SCAN Cards
           </h1>
           <p className="mt-2 text-sm text-gray-600 sm:text-base">
-            Submit a report and upload a photo from your phone.
+            Submit an incident report and upload a photo from your phone.
           </p>
         </div>
 
