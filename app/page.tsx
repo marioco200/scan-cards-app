@@ -89,7 +89,7 @@ export default function Home() {
         .from('surveys')
         .select('id')
         .limit(1)
-        .single()
+        .maybeSingle()
 
       if (surveyError || !surveyRow) {
         throw new Error(surveyError?.message || 'Survey not found')
