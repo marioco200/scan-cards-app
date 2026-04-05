@@ -712,87 +712,155 @@ const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
     </table>
   </div>
 )}
-            {filteredContacts.map((contact) => (
-              <div
-                key={contact.id}
-                className="overflow-hidden rounded-2xl bg-white text-left shadow"
-              >
-                {contact.photo_url ? (
-                  <img
-                    src={contact.photo_url}
-                    alt={contact.name}
-                    className="h-56 w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-56 items-center justify-center bg-gray-200 text-gray-500">
-                    No photo
-                  </div>
-                )}
-
-                <div className="space-y-3 p-4">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-900">
-                      {contact.name}
-                    </h2>
-                    <p className="text-base font-medium text-blue-700">
-                      {contact.title}
-                    </p>
-                    <p className="text-sm font-medium text-gray-700">
-                      {contact.company}
-                    </p>
-                  </div>
-
-                  <div className="space-y-1 text-sm text-gray-700">
-                    <p>
-                      <span className="font-medium">Personal Phone:</span>{' '}
-                      {contact.personal_phone || '—'}
-                    </p>
-                    <p>
-                      <span className="font-medium">Work Phone:</span>{' '}
-                      {contact.work_phone || '—'}
-                    </p>
-                    <p>
-                      <span className="font-medium">Personal Email:</span>{' '}
-                      {contact.personal_email || '—'}
-                    </p>
-                    <p>
-                      <span className="font-medium">Work Email:</span>{' '}
-                      {contact.work_email || '—'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="mb-1 text-sm font-medium text-gray-900">
-                      Experience
-                    </p>
-                    <p className="text-sm text-gray-700">
-                      {contact.experience || '—'}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(contact)}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(contact)}
-                      className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-                    >
-                      Erase
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+            {loading ? (
+  <p className="text-white">Loading contacts...</p>
+) : filteredContacts.length === 0 ? (
+  <p className="text-white">No contacts found.</p>
+) : viewMode === 'grid' ? (
+  <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+    {filteredContacts.map((contact) => (
+      <div
+        key={contact.id}
+        className="overflow-hidden rounded-2xl bg-white text-left shadow"
+      >
+        {contact.photo_url ? (
+          <img
+            src={contact.photo_url}
+            alt={contact.name}
+            className="h-56 w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-56 items-center justify-center bg-gray-200 text-gray-500">
+            No photo
           </div>
         )}
+
+        <div className="space-y-3 p-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">
+              {contact.name}
+            </h2>
+            <p className="text-base font-medium text-blue-700">
+              {contact.title}
+            </p>
+            <p className="text-sm font-medium text-gray-700">
+              {contact.company}
+            </p>
+          </div>
+
+          <div className="space-y-1 text-sm text-gray-700">
+            <p>
+              <span className="font-medium">Personal Phone:</span>{' '}
+              {contact.personal_phone || '—'}
+            </p>
+            <p>
+              <span className="font-medium">Work Phone:</span>{' '}
+              {contact.work_phone || '—'}
+            </p>
+            <p>
+              <span className="font-medium">Personal Email:</span>{' '}
+              {contact.personal_email || '—'}
+            </p>
+            <p>
+              <span className="font-medium">Work Email:</span>{' '}
+              {contact.work_email || '—'}
+            </p>
+          </div>
+
+          <div>
+            <p className="mb-1 text-sm font-medium text-gray-900">
+              Experience
+            </p>
+            <p className="text-sm text-gray-700">
+              {contact.experience || '—'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => startEdit(contact)}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Edit
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDelete(contact)}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            >
+              Erase
+            </button>
+          </div>
+        </div>
       </div>
-    </main>
-  )
-}
+    ))}
+  </div>
+) : (
+  <div className="overflow-x-auto rounded-2xl bg-white p-4 shadow">
+    <table className="w-full text-left text-sm text-gray-700">
+      <thead className="bg-gray-100 text-xs uppercase text-gray-600">
+        <tr>
+          <th className="px-3 py-2">Photo</th>
+          <th className="px-3 py-2">Name</th>
+          <th className="px-3 py-2">Title</th>
+          <th className="px-3 py-2">Personal Phone</th>
+          <th className="px-3 py-2">Work Phone</th>
+          <th className="px-3 py-2">Email</th>
+          <th className="px-3 py-2">Experience</th>
+          <th className="px-3 py-2">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {filteredContacts.map((contact) => (
+          <tr key={contact.id} className="border-b">
+            <td className="px-3 py-2">
+              {contact.photo_url ? (
+                <img
+                  src={contact.photo_url}
+                  alt={contact.name}
+                  className="h-12 w-12 rounded object-cover"
+                />
+              ) : (
+                '—'
+              )}
+            </td>
+
+            <td className="px-3 py-2 font-semibold">{contact.name}</td>
+            <td className="px-3 py-2">{contact.title}</td>
+            <td className="px-3 py-2">{contact.personal_phone || '—'}</td>
+            <td className="px-3 py-2">{contact.work_phone || '—'}</td>
+            <td className="px-3 py-2">
+              {contact.work_email || contact.personal_email || '—'}
+            </td>
+            <td className="max-w-[200px] px-3 py-2 truncate">
+              {contact.experience || '—'}
+            </td>
+
+            <td className="px-3 py-2">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => startEdit(contact)}
+                  className="rounded bg-blue-600 px-2 py-1 text-white"
+                >
+                  Edit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDelete(contact)}
+                  className="rounded bg-red-600 px-2 py-1 text-white"
+                >
+                  Erase
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
