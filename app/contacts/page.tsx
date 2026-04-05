@@ -64,7 +64,7 @@ export default function ContactsPage() {
 
   const [file, setFile] = useState<File | null>(null)
   const [message, setMessage] = useState('')
-
+const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const inputClass =
     'w-full rounded-lg border border-gray-300 bg-white p-3 text-black placeholder:text-gray-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
 
@@ -301,6 +301,31 @@ export default function ContactsPage() {
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-white">Contact List</h1>
+            <div className="mt-4 flex gap-3">
+  <button
+    type="button"
+    onClick={() => setViewMode('grid')}
+    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+      viewMode === 'grid'
+        ? 'bg-white text-black'
+        : 'bg-white/20 text-white'
+    }`}
+  >
+    Cards
+  </button>
+
+  <button
+    type="button"
+    onClick={() => setViewMode('table')}
+    className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+      viewMode === 'table'
+        ? 'bg-white text-black'
+        : 'bg-white/20 text-white'
+    }`}
+  >
+    Table
+  </button>
+</div>
             <p className="text-white/90">
               Manage contacts for Preload and Caldwell.
             </p>
@@ -555,11 +580,138 @@ export default function ContactsPage() {
         </div>
 
         {loading ? (
-          <p className="text-white">Loading contacts...</p>
-        ) : filteredContacts.length === 0 ? (
-          <p className="text-white">No contacts found.</p>
+  <p className="text-white">Loading contacts...</p>
+) : filteredContacts.length === 0 ? (
+  <p className="text-white">No contacts found.</p>
+) : viewMode === 'grid' ? (
+  // 🟦 CARD VIEW (existing)
+  <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+    {filteredContacts.map((contact) => (
+      <div
+        key={contact.id}
+        className="overflow-hidden rounded-2xl bg-white text-left shadow"
+      >
+        {contact.photo_url ? (
+          <img
+            src={contact.photo_url}
+            alt={contact.name}
+            className="h-56 w-full object-cover"
+          />
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <div className="flex h-56 items-center justify-center bg-gray-200 text-gray-500">
+            No photo
+          </div>
+        )}
+
+        <div className="space-y-3 p-4">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {contact.name}
+          </h2>
+          <p className="text-blue-700">{contact.title}</p>
+
+          <div className="text-sm text-gray-700">
+            <p>📱 {contact.personal_phone || '—'}</p>
+            <p>🏢 {contact.work_phone || '—'}</p>
+            <p>✉️ {contact.personal_email || '—'}</p>
+            <p>📧 {contact.work_email || '—'}</p>
+          </div>
+
+          <p className="text-sm text-gray-600">
+            {contact.experience || '—'}
+          </p>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => startEdit(contact)}
+              className="rounded bg-blue-600 px-3 py-1 text-white"
+            >
+              Edit
+            </button>
+            <button
+              onClick={() => handleDelete(contact)}
+              className="rounded bg-red-600 px-3 py-1 text-white"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+) : (
+  // 📋 TABLE VIEW (NEW)
+  <div className="overflow-x-auto rounded-2xl bg-white p-4 shadow">
+    <table className="w-full text-sm text-left text-gray-700">
+      <thead className="bg-gray-100 text-xs uppercase text-gray-600">
+        <tr>
+          <th className="px-3 py-2">Photo</th>
+          <th className="px-3 py-2">Name</th>
+          <th className="px-3 py-2">Title</th>
+          <th className="px-3 py-2">Personal Phone</th>
+          <th className="px-3 py-2">Work Phone</th>
+          <th className="px-3 py-2">Email</th>
+          <th className="px-3 py-2">Experience</th>
+          <th className="px-3 py-2">Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {filteredContacts.map((contact) => (
+          <tr key={contact.id} className="border-b">
+            <td className="px-3 py-2">
+              {contact.photo_url ? (
+                <img
+                  src={contact.photo_url}
+                  className="h-12 w-12 rounded object-cover"
+                />
+              ) : (
+                '—'
+              )}
+            </td>
+
+            <td className="px-3 py-2 font-semibold">
+              {contact.name}
+            </td>
+
+            <td className="px-3 py-2">{contact.title}</td>
+
+            <td className="px-3 py-2">
+              {contact.personal_phone || '—'}
+            </td>
+
+            <td className="px-3 py-2">
+              {contact.work_phone || '—'}
+            </td>
+
+            <td className="px-3 py-2">
+              {contact.work_email || contact.personal_email || '—'}
+            </td>
+
+            <td className="px-3 py-2 max-w-[200px] truncate">
+              {contact.experience || '—'}
+            </td>
+
+            <td className="px-3 py-2 flex gap-2">
+              <button
+                onClick={() => startEdit(contact)}
+                className="rounded bg-blue-600 px-2 py-1 text-white"
+              >
+                Edit
+              </button>
+
+              <button
+                onClick={() => handleDelete(contact)}
+                className="rounded bg-red-600 px-2 py-1 text-white"
+              >
+                Delete
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
             {filteredContacts.map((contact) => (
               <div
                 key={contact.id}
