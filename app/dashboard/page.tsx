@@ -26,16 +26,29 @@ type SubmissionImage = {
 
 type SubmissionRow = {
   id: string
+  company: string | null
+  report_date: string | null
   name: string | null
+  division: string | null
   location: string | null
   superintendent: string | null
+  supervisor: string | null
   what_happened: string | null
-  fixed_problem: boolean | null
   corrective_actions: string | null
+  observed_category: string | null
+  observed_subcategory: string | null
+  observed_response: string | null
+  how_did_it_happen: string | null
+  how_was_it_fixed: string | null
+  what_should_we_learn: string | null
+  how_could_it_be_prevented: string | null
+  fixed_problem: boolean | null
   status: string | null
   submitted_at: string
   submission_images: SubmissionImage[]
 }
+
+type CompanyFilter = 'all' | 'Caldwell' | 'Preload'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -44,9 +57,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
+  const [companyFilter, setCompanyFilter] = useState<CompanyFilter>('all')
   const [search, setSearch] = useState('')
   const [locationFilter, setLocationFilter] = useState('')
-  const [superintendentFilter, setSuperintendentFilter] = useState('')
+  const [divisionFilter, setDivisionFilter] = useState('')
+  const [leaderFilter, setLeaderFilter] = useState('')
   const [fixedFilter, setFixedFilter] = useState('all')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
@@ -83,12 +98,23 @@ export default function DashboardPage() {
         .from('submissions')
         .select(`
           id,
+          company,
+          report_date,
           name,
+          division,
           location,
           superintendent,
+          supervisor,
           what_happened,
-          fixed_problem,
           corrective_actions,
+          observed_category,
+          observed_subcategory,
+          observed_response,
+          how_did_it_happen,
+          how_was_it_fixed,
+          what_should_we_learn,
+          how_could_it_be_prevented,
+          fixed_problem,
           status,
           submitted_at
         `)
@@ -128,6 +154,11 @@ export default function DashboardPage() {
     loadRows()
   }, [checkingAuth])
 
+  const getLeaderName = (row: SubmissionRow) =>
+    row.company === 'Caldwell'
+      ? row.supervisor || ''
+      : row.superintendent || ''
+
   const uniqueLocations = useMemo(() => {
     const values = rows
       .map((r) => r.location?.trim())
@@ -135,9 +166,16 @@ export default function DashboardPage() {
     return Array.from(new Set(values)).sort()
   }, [rows])
 
-  const uniqueSuperintendents = useMemo(() => {
+  const uniqueDivisions = useMemo(() => {
     const values = rows
-      .map((r) => r.superintendent?.trim())
+      .map((r) => r.division?.trim())
+      .filter((v): v is string => Boolean(v))
+    return Array.from(new Set(values)).sort()
+  }, [rows])
+
+  const uniqueLeaders = useMemo(() => {
+    const values = rows
+      .map((r) => getLeaderName(r).trim())
       .filter((v): v is string => Boolean(v))
     return Array.from(new Set(values)).sort()
   }, [rows])
@@ -145,37 +183,49 @@ export default function DashboardPage() {
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
       const searchText = search.toLowerCase()
+      const leaderName = getLeaderName(row).toLowerCase()
+
+      const matchesCompany =
+        companyFilter === 'all' || row.company === companyFilter
 
       const matchesSearch =
         !search ||
         row.name?.toLowerCase().includes(searchText) ||
         row.location?.toLowerCase().includes(searchText) ||
-        row.superintendent?.toLowerCase().includes(searchText) ||
-        row.what_happened?.toLowerCase().includes(searchText)
+        row.division?.toLowerCase().includes(searchText) ||
+        leaderName.includes(searchText) ||
+        row.what_happened?.toLowerCase().includes(searchText) ||
+        row.observed_response?.toLowerCase().includes(searchText)
 
       const matchesLocation =
         !locationFilter || row.location === locationFilter
 
-      const matchesSuperintendent =
-        !superintendentFilter || row.superintendent === superintendentFilter
+      const matchesDivision =
+        !divisionFilter || row.division === divisionFilter
+
+      const matchesLeader =
+        !leaderFilter || getLeaderName(row) === leaderFilter
 
       const matchesFixed =
         fixedFilter === 'all' ||
         (fixedFilter === 'yes' && row.fixed_problem === true) ||
         (fixedFilter === 'no' && row.fixed_problem === false)
 
-      const rowDate = new Date(row.submitted_at)
+      const compareDate = row.report_date || row.submitted_at?.slice(0, 10)
+      const rowDate = compareDate ? new Date(compareDate) : null
 
       const matchesStartDate =
-        !startDate || rowDate >= new Date(`${startDate}T00:00:00`)
+        !startDate || (rowDate && rowDate >= new Date(`${startDate}T00:00:00`))
 
       const matchesEndDate =
-        !endDate || rowDate <= new Date(`${endDate}T23:59:59`)
+        !endDate || (rowDate && rowDate <= new Date(`${endDate}T23:59:59`))
 
       return (
+        matchesCompany &&
         matchesSearch &&
         matchesLocation &&
-        matchesSuperintendent &&
+        matchesDivision &&
+        matchesLeader &&
         matchesFixed &&
         matchesStartDate &&
         matchesEndDate
@@ -183,47 +233,44 @@ export default function DashboardPage() {
     })
   }, [
     rows,
+    companyFilter,
     search,
     locationFilter,
-    superintendentFilter,
+    divisionFilter,
+    leaderFilter,
     fixedFilter,
     startDate,
     endDate
   ])
 
-  const recentActivity = useMemo(() => {
-    return [...rows].slice(0, 5)
-  }, [rows])
-
   const totalReports = filteredRows.length
   const fixedCount = filteredRows.filter((r) => r.fixed_problem === true).length
   const notFixedCount = filteredRows.filter((r) => r.fixed_problem === false).length
-  const withPhotosCount = filteredRows.filter(
-    (r) => r.submission_images && r.submission_images.length > 0
-  ).length
 
-  const fixedPieData = [
-    { name: 'Fixed', value: fixedCount },
-    { name: 'Not Fixed', value: notFixedCount }
+  const companyPieData = [
+    {
+      name: 'Preload',
+      value: filteredRows.filter((r) => (r.company || 'Preload') === 'Preload').length
+    },
+    {
+      name: 'Caldwell',
+      value: filteredRows.filter((r) => r.company === 'Caldwell').length
+    }
   ]
 
   const reportsByLocation = Object.values(
     filteredRows.reduce((acc, row) => {
       const key = row.location || 'Unknown'
-      if (!acc[key]) {
-        acc[key] = { name: key, count: 0 }
-      }
+      if (!acc[key]) acc[key] = { name: key, count: 0 }
       acc[key].count += 1
       return acc
     }, {} as Record<string, { name: string; count: number }>)
   )
 
-  const reportsBySuperintendent = Object.values(
+  const reportsByLeader = Object.values(
     filteredRows.reduce((acc, row) => {
-      const key = row.superintendent || 'Unknown'
-      if (!acc[key]) {
-        acc[key] = { name: key, count: 0 }
-      }
+      const key = getLeaderName(row) || 'Unknown'
+      if (!acc[key]) acc[key] = { name: key, count: 0 }
       acc[key].count += 1
       return acc
     }, {} as Record<string, { name: string; count: number }>)
@@ -231,17 +278,15 @@ export default function DashboardPage() {
 
   const reportsOverTime = Object.values(
     filteredRows.reduce((acc, row) => {
-      const date = new Date(row.submitted_at).toLocaleDateString()
-      if (!acc[date]) {
-        acc[date] = { date, count: 0 }
-      }
-      acc[date].count += 1
+      const key = row.report_date || row.submitted_at?.slice(0, 10) || 'Unknown'
+      if (!acc[key]) acc[key] = { date: key, count: 0 }
+      acc[key].count += 1
       return acc
     }, {} as Record<string, { date: string; count: number }>)
-  )
+  ).sort((a, b) => a.date.localeCompare(b.date))
 
- const inputClass =
-  'w-full rounded-lg border border-gray-400 bg-white p-3 text-black placeholder:text-gray-500 [color:black] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
+  const inputClass =
+    'w-full rounded-lg border border-gray-400 bg-white p-3 text-black placeholder:text-gray-500 [color:black] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
 
   if (checkingAuth) {
     return (
@@ -260,7 +305,7 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-3xl font-bold text-white">SCAN Cards</h1>
             <p className="text-white/90">
-              Review reports, analytics, photos, and recent activity.
+              Review reports for Preload and Caldwell.
             </p>
           </div>
 
@@ -276,7 +321,45 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => setCompanyFilter('all')}
+            className={`rounded-full px-4 py-2 text-sm font-semibold ${
+              companyFilter === 'all'
+                ? 'bg-white text-gray-900'
+                : 'bg-white/20 text-white'
+            }`}
+          >
+            Caldwell/Preload
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCompanyFilter('Caldwell')}
+            className={`rounded-full px-4 py-2 text-sm font-semibold ${
+              companyFilter === 'Caldwell'
+                ? 'bg-white text-gray-900'
+                : 'bg-white/20 text-white'
+            }`}
+          >
+            Caldwell
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCompanyFilter('Preload')}
+            className={`rounded-full px-4 py-2 text-sm font-semibold ${
+              companyFilter === 'Preload'
+                ? 'bg-white text-gray-900'
+                : 'bg-white/20 text-white'
+            }`}
+          >
+            Preload
+          </button>
+        </div>
+
+        <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <div className="rounded-2xl bg-white/95 p-5 shadow">
             <p className="text-sm text-gray-500">Total Reports</p>
             <p className="mt-2 text-3xl font-bold text-gray-900">{totalReports}</p>
@@ -291,63 +374,26 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-500">Not Fixed</p>
             <p className="mt-2 text-3xl font-bold text-red-600">{notFixedCount}</p>
           </div>
-
-          <div className="rounded-2xl bg-white/95 p-5 shadow">
-            <p className="text-sm text-gray-500">With Photos</p>
-            <p className="mt-2 text-3xl font-bold text-blue-600">{withPhotosCount}</p>
-          </div>
         </div>
 
         <div className="mb-6 grid gap-6 xl:grid-cols-2">
           <div className="rounded-2xl bg-white p-4 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Reports by Location</h2>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={reportsByLocation}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" stroke="#374151" />
-                  <YAxis allowDecimals={false} stroke="#374151" />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#3b82f6" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white p-4 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Fixed vs Not Fixed</h2>
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">Company Split</h2>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={fixedPieData}
+                    data={companyPieData}
                     dataKey="value"
                     nameKey="name"
                     outerRadius={100}
                     label
                   >
-                    <Cell fill="#16a34a" />
                     <Cell fill="#dc2626" />
+                    <Cell fill="#16a34a" />
                   </Pie>
                   <Tooltip />
                 </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-6 grid gap-6 xl:grid-cols-2">
-          <div className="rounded-2xl bg-white p-4 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Reports by Superintendent</h2>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={reportsBySuperintendent}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" stroke="#374151" />
-                  <YAxis allowDecimals={false} stroke="#374151" />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#8b5cf6" />
-                </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -368,13 +414,47 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <div className="mb-6 grid gap-6 xl:grid-cols-2">
+          <div className="rounded-2xl bg-white p-4 shadow">
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">
+              Reports by Superintendent/Supervisor
+            </h2>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={reportsByLeader}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" stroke="#374151" />
+                  <YAxis allowDecimals={false} stroke="#374151" />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#8b5cf6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow">
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">Reports by Location</h2>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={reportsByLocation}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" stroke="#374151" />
+                  <YAxis allowDecimals={false} stroke="#374151" />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#3b82f6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
         <div className="mb-6 rounded-2xl bg-white p-4 shadow">
-          <h2 className="mb-4 text-xl font-semibold text-gray-900">Filters</h2>
+          <h2 className="mb-4 text-xl font-semibold text-black">Filters</h2>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <input
               type="text"
-              placeholder="Search name, location, superintendent..."
+              placeholder="Search name, location, division..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className={inputClass}
@@ -382,8 +462,8 @@ export default function DashboardPage() {
 
             <select
               value={locationFilter}
-  onChange={(e) => setLocationFilter(e.target.value)}
-  className={`${inputClass} text-black`}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              className={inputClass}
             >
               <option value="">All locations</option>
               {uniqueLocations.map((location) => (
@@ -394,14 +474,27 @@ export default function DashboardPage() {
             </select>
 
             <select
-              value={superintendentFilter}
-              onChange={(e) => setSuperintendentFilter(e.target.value)}
-              className={`${inputClass} text-black`}
+              value={divisionFilter}
+              onChange={(e) => setDivisionFilter(e.target.value)}
+              className={inputClass}
             >
-              <option value="">All superintendents</option>
-              {uniqueSuperintendents.map((person) => (
-                <option key={person} value={person}>
-                  {person}
+              <option value="">All divisions</option>
+              {uniqueDivisions.map((division) => (
+                <option key={division} value={division}>
+                  {division}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={leaderFilter}
+              onChange={(e) => setLeaderFilter(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">All Superintendents/Supervisors</option>
+              {uniqueLeaders.map((leader) => (
+                <option key={leader} value={leader}>
+                  {leader}
                 </option>
               ))}
             </select>
@@ -409,7 +502,7 @@ export default function DashboardPage() {
             <select
               value={fixedFilter}
               onChange={(e) => setFixedFilter(e.target.value)}
-              className={`${inputClass} text-black`}
+              className={inputClass}
             >
               <option value="all">All reports</option>
               <option value="yes">Fixed</option>
@@ -417,19 +510,19 @@ export default function DashboardPage() {
             </select>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1 block text-sm font-medium text-black">
                 Start date
               </label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className={`${inputClass} text-black`}
+                className={inputClass}
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1 block text-sm font-medium text-black">
                 End date
               </label>
               <input
@@ -445,44 +538,20 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => {
+                setCompanyFilter('all')
                 setSearch('')
                 setLocationFilter('')
-                setSuperintendentFilter('')
+                setDivisionFilter('')
+                setLeaderFilter('')
                 setFixedFilter('all')
                 setStartDate('')
                 setEndDate('')
               }}
-              className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-300"
+              className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-black hover:bg-gray-300"
             >
               Clear filters
             </button>
           </div>
-        </div>
-
-        <div className="mb-6 rounded-2xl bg-white p-4 shadow">
-          <h2 className="mb-4 text-xl font-semibold text-gray-900">Recent Activity</h2>
-          {recentActivity.length === 0 ? (
-            <p className="text-gray-500">No recent activity.</p>
-          ) : (
-            <div className="space-y-3">
-              {recentActivity.map((row) => (
-                <div
-                  key={row.id}
-                  className="flex items-center justify-between rounded-lg border border-gray-200 p-3"
-                >
-                  <div>
-                    <p className="font-medium text-gray-900">{row.name || 'No name'}</p>
-                    <p className="text-sm text-gray-500">
-                      {row.location || 'No location'} • {row.superintendent || 'No superintendent'}
-                    </p>
-                  </div>
-                  <p className="text-sm text-gray-400">
-                    {new Date(row.submitted_at).toLocaleString()}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {loading ? (
@@ -494,6 +563,9 @@ export default function DashboardPage() {
             {filteredRows.map((row) => {
               const image = row.submission_images?.[0]
               const isUnresolved = row.fixed_problem === false
+              const leaderLabel =
+                row.company === 'Caldwell' ? 'Supervisor' : 'Superintendent'
+              const leaderValue = getLeaderName(row) || '—'
 
               return (
                 <button
@@ -527,6 +599,9 @@ export default function DashboardPage() {
                         <p className="text-base font-medium text-blue-700">
                           {row.location || 'No location'}
                         </p>
+                        <p className="text-sm font-medium text-gray-700">
+                          {row.company || 'Preload'} • {row.division || 'No division'}
+                        </p>
                       </div>
 
                       <span
@@ -548,19 +623,19 @@ export default function DashboardPage() {
 
                     <div className="text-sm text-gray-700">
                       <p>
-                        <span className="font-medium">Superintendent:</span>{' '}
-                        {row.superintendent || '—'}
-                      </p>
-                      <p>
-                        <span className="font-medium">Status:</span>{' '}
-                        {row.status || '—'}
+                        <span className="font-medium">{leaderLabel}:</span>{' '}
+                        {leaderValue}
                       </p>
                     </div>
 
                     <div>
-                      <p className="mb-1 text-sm font-medium text-gray-900">What happened?</p>
+                      <p className="mb-1 text-sm font-medium text-gray-900">
+                        {row.company === 'Caldwell' ? 'What was observed?' : 'What happened?'}
+                      </p>
                       <p className="text-sm text-gray-700 line-clamp-3">
-                        {row.what_happened || '—'}
+                        {row.company === 'Caldwell'
+                          ? row.observed_response || '—'
+                          : row.what_happened || '—'}
                       </p>
                     </div>
 
@@ -580,7 +655,7 @@ export default function DashboardPage() {
             onClick={() => setSelectedSubmission(null)}
           >
             <div
-              className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
+              className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="mb-4 flex items-start justify-between gap-4">
@@ -589,7 +664,7 @@ export default function DashboardPage() {
                     {selectedSubmission.name || 'No name'}
                   </h2>
                   <p className="text-lg font-medium text-blue-700">
-                    {selectedSubmission.location || 'No location'}
+                    {selectedSubmission.company || 'Preload'} • {selectedSubmission.location || 'No location'}
                   </p>
                 </div>
 
@@ -632,9 +707,23 @@ export default function DashboardPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-xl bg-gray-50 p-4">
-                  <p className="text-sm font-medium text-gray-500">Superintendent</p>
+                  <p className="text-sm font-medium text-gray-500">Division</p>
+                  <p className="mt-1 text-gray-900">{selectedSubmission.division || '—'}</p>
+                </div>
+
+                <div className="rounded-xl bg-gray-50 p-4">
+                  <p className="text-sm font-medium text-gray-500">
+                    {selectedSubmission.company === 'Caldwell' ? 'Supervisor' : 'Superintendent'}
+                  </p>
                   <p className="mt-1 text-gray-900">
-                    {selectedSubmission.superintendent || '—'}
+                    {getLeaderName(selectedSubmission) || '—'}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-gray-50 p-4">
+                  <p className="text-sm font-medium text-gray-500">Date</p>
+                  <p className="mt-1 text-gray-900">
+                    {selectedSubmission.report_date || '—'}
                   </p>
                 </div>
 
@@ -649,26 +738,74 @@ export default function DashboardPage() {
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                  <p className="text-sm font-medium text-gray-500">What happened?</p>
-                  <p className="mt-1 text-gray-900">
-                    {selectedSubmission.what_happened || '—'}
-                  </p>
-                </div>
+                {selectedSubmission.company === 'Preload' ? (
+                  <>
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">What happened?</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.what_happened || '—'}
+                      </p>
+                    </div>
 
-                <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                  <p className="text-sm font-medium text-gray-500">Corrective actions</p>
-                  <p className="mt-1 text-gray-900">
-                    {selectedSubmission.corrective_actions || '—'}
-                  </p>
-                </div>
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">Corrective actions</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.corrective_actions || '—'}
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">What was observed?</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.observed_category || '—'}
+                      </p>
+                    </div>
 
-                <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                  <p className="text-sm font-medium text-gray-500">Submitted</p>
-                  <p className="mt-1 text-gray-900">
-                    {new Date(selectedSubmission.submitted_at).toLocaleString()}
-                  </p>
-                </div>
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">Observed detail</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.observed_subcategory || '—'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">Response</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.observed_response || '—'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">How did it happen?</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.how_did_it_happen || '—'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">How was it fixed?</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.how_was_it_fixed || '—'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">What should we learn?</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.what_should_we_learn || '—'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
+                      <p className="text-sm font-medium text-gray-500">How could it be prevented?</p>
+                      <p className="mt-1 text-gray-900">
+                        {selectedSubmission.how_could_it_be_prevented || '—'}
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
