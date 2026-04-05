@@ -77,6 +77,13 @@ export default function DashboardPage() {
     new Date().toISOString().slice(0, 7)
   )
 
+  const [targetCompany, setTargetCompany] = useState<'Preload' | 'Caldwell'>('Preload')
+  const [targetDivision, setTargetDivision] = useState('')
+  const [targetEmployeeCount, setTargetEmployeeCount] = useState('')
+  const [targetMessage, setTargetMessage] = useState('')
+
+  const [editCounts, setEditCounts] = useState<Record<string, string>>({})
+
   const [selectedImage, setSelectedImage] = useState<{
     url: string
     name: string
@@ -168,8 +175,15 @@ export default function DashboardPage() {
         }
       })
 
+      const safeTargets = (targets || []) as EmployeeTargetRow[]
+
       setRows(merged as SubmissionRow[])
-      setEmployeeTargets((targets || []) as EmployeeTargetRow[])
+      setEmployeeTargets(safeTargets)
+      setEditCounts(
+        Object.fromEntries(
+          safeTargets.map((t) => [`${t.company}-${t.division}`, String(t.employee_count)])
+        )
+      )
       setLoading(false)
     }
 
@@ -180,6 +194,11 @@ export default function DashboardPage() {
     row.company === 'Caldwell'
       ? row.supervisor || ''
       : row.superintendent || ''
+
+  const targetDivisionOptions =
+    targetCompany === 'Preload'
+      ? ['Field', 'Shop']
+      : ['Steel', 'Civil', 'Shop']
 
   const uniqueLocations = useMemo(() => {
     const values = rows
@@ -367,18 +386,28 @@ export default function DashboardPage() {
     }
   })
 
-  const updateEmployeeCount = async (
-    company: string,
-    division: string,
-    employeeCount: number
-  ) => {
-    const { error } = await supabase
+  const saveEmployeeTarget = async () => {
+    setTargetMessage('')
+
+    if (!targetCompany || !targetDivision || targetEmployeeCount === '') {
+      setTargetMessage('Please complete company, division, and employee count.')
+      return
+    }
+
+    const employeeCount = Number(targetEmployeeCount)
+
+    if (Number.isNaN(employeeCount) || employeeCount < 0) {
+      setTargetMessage('Please enter a valid employee count.')
+      return
+    }
+
+    const { data, error } = await supabase
       .from('employee_targets')
       .upsert(
         [
           {
-            company,
-            division,
+            company: targetCompany,
+            division: targetDivision,
             employee_count: employeeCount
           }
         ],
@@ -386,35 +415,87 @@ export default function DashboardPage() {
           onConflict: 'company,division'
         }
       )
+      .select('id, company, division, employee_count')
 
     if (error) {
-      console.error('Failed updating employee count:', error)
+      console.error(error)
+      setTargetMessage(`Error: ${error.message}`)
       return
     }
 
-    setEmployeeTargets((prev) => {
-      const existing = prev.find(
-        (item) => item.company === company && item.division === division
-      )
+    const saved = data?.[0]
 
-      if (existing) {
-        return prev.map((item) =>
-          item.company === company && item.division === division
-            ? { ...item, employee_count: employeeCount }
+    if (saved) {
+      setEmployeeTargets((prev) => {
+        const existing = prev.find(
+          (item) => item.company === saved.company && item.division === saved.division
+        )
+
+        if (existing) {
+          return prev.map((item) =>
+            item.company === saved.company && item.division === saved.division
+              ? saved
+              : item
+          )
+        }
+
+        return [...prev, saved]
+      })
+
+      setEditCounts((prev) => ({
+        ...prev,
+        [`${saved.company}-${saved.division}`]: String(saved.employee_count)
+      }))
+    }
+
+    setTargetEmployeeCount('')
+    setTargetDivision('')
+    setTargetMessage('Employee count saved.')
+  }
+
+  const updateExistingEmployeeCount = async (
+    company: string,
+    division: string
+  ) => {
+    const key = `${company}-${division}`
+    const nextValue = Number(editCounts[key] || 0)
+
+    if (Number.isNaN(nextValue) || nextValue < 0) {
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('employee_targets')
+      .upsert(
+        [
+          {
+            company,
+            division,
+            employee_count: nextValue
+          }
+        ],
+        {
+          onConflict: 'company,division'
+        }
+      )
+      .select('id, company, division, employee_count')
+
+    if (error) {
+      console.error(error)
+      return
+    }
+
+    const saved = data?.[0]
+
+    if (saved) {
+      setEmployeeTargets((prev) =>
+        prev.map((item) =>
+          item.company === saved.company && item.division === saved.division
+            ? saved
             : item
         )
-      }
-
-      return [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          company,
-          division,
-          employee_count: employeeCount
-        }
-      ]
-    })
+      )
+    }
   }
 
   const inputClass =
@@ -552,41 +633,118 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          <div className="mb-6 rounded-xl border border-gray-200 p-4">
+            <h3 className="mb-3 text-lg font-semibold text-black">
+              Add / Update Weekly Employee Count
+            </h3>
+
+            <div className="grid gap-4 md:grid-cols-4">
+              <select
+                value={targetCompany}
+                onChange={(e) => {
+                  const value = e.target.value as 'Preload' | 'Caldwell'
+                  setTargetCompany(value)
+                  setTargetDivision('')
+                }}
+                className={inputClass}
+              >
+                <option value="Preload">Preload</option>
+                <option value="Caldwell">Caldwell</option>
+              </select>
+
+              <select
+                value={targetDivision}
+                onChange={(e) => setTargetDivision(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Choose division</option>
+                {targetDivisionOptions.map((division) => (
+                  <option key={division} value={division}>
+                    {division}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="number"
+                min="0"
+                value={targetEmployeeCount}
+                onChange={(e) => setTargetEmployeeCount(e.target.value)}
+                className={inputClass}
+                placeholder="Employee count"
+              />
+
+              <button
+                type="button"
+                onClick={saveEmployeeTarget}
+                className="rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+              >
+                Save Count
+              </button>
+            </div>
+
+            {targetMessage && (
+              <p className="mt-3 text-sm font-medium text-gray-700">
+                {targetMessage}
+              </p>
+            )}
+          </div>
+
           <div className="grid gap-6 lg:grid-cols-2">
             <div>
               <h3 className="mb-3 text-lg font-semibold text-black">
-                Employee Counts
+                Current Employee Counts
               </h3>
               <div className="space-y-3">
-                {employeeTargets.map((target) => (
-                  <div
-                    key={`${target.company}-${target.division}`}
-                    className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-3 md:grid-cols-3"
-                  >
-                    <div className="text-sm text-gray-900">
-                      <div className="font-semibold">{target.company}</div>
-                      <div className="text-gray-600">{target.division}</div>
-                    </div>
+                {employeeTargets.length === 0 ? (
+                  <p className="text-sm text-gray-600">No employee counts saved yet.</p>
+                ) : (
+                  employeeTargets.map((target) => {
+                    const key = `${target.company}-${target.division}`
 
-                    <div className="flex items-center text-sm text-gray-600">
-                      Required: {target.employee_count * 2}
-                    </div>
+                    return (
+                      <div
+                        key={key}
+                        className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-3 md:grid-cols-4"
+                      >
+                        <div className="text-sm text-gray-900">
+                          <div className="font-semibold">{target.company}</div>
+                          <div className="text-gray-600">{target.division}</div>
+                        </div>
 
-                    <input
-                      type="number"
-                      min="0"
-                      value={target.employee_count}
-                      onChange={(e) =>
-                        updateEmployeeCount(
-                          target.company,
-                          target.division,
-                          Number(e.target.value || 0)
-                        )
-                      }
-                      className={inputClass}
-                    />
-                  </div>
-                ))}
+                        <div className="flex items-center text-sm text-gray-600">
+                          Required: {target.employee_count * 2}
+                        </div>
+
+                        <input
+                          type="number"
+                          min="0"
+                          value={editCounts[key] ?? String(target.employee_count)}
+                          onChange={(e) =>
+                            setEditCounts((prev) => ({
+                              ...prev,
+                              [key]: e.target.value
+                            }))
+                          }
+                          className={inputClass}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateExistingEmployeeCount(
+                              target.company,
+                              target.division
+                            )
+                          }
+                          className="rounded-lg bg-gray-900 px-4 py-3 text-sm font-semibold text-white hover:bg-black"
+                        >
+                          Update
+                        </button>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             </div>
 
@@ -595,27 +753,31 @@ export default function DashboardPage() {
                 Division Completion
               </h3>
               <div className="space-y-3">
-                {divisionCompletion.map((item) => (
-                  <div
-                    key={`${item.company}-${item.division}`}
-                    className="rounded-lg border border-gray-200 p-3"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="font-semibold text-gray-900">
-                          {item.company} / {item.division}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          {item.actual} / {item.required}
+                {divisionCompletion.length === 0 ? (
+                  <p className="text-sm text-gray-600">No division targets yet.</p>
+                ) : (
+                  divisionCompletion.map((item) => (
+                    <div
+                      key={`${item.company}-${item.division}`}
+                      className="rounded-lg border border-gray-200 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-semibold text-gray-900">
+                            {item.company} / {item.division}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {item.actual} / {item.required}
+                          </p>
+                        </div>
+
+                        <p className="text-xl font-bold text-gray-900">
+                          {item.percent}%
                         </p>
                       </div>
-
-                      <p className="text-xl font-bold text-gray-900">
-                        {item.percent}%
-                      </p>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>
