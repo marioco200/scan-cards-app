@@ -50,10 +50,18 @@ type SubmissionRow = {
 
 type CompanyFilter = 'all' | 'Caldwell' | 'Preload'
 
+type EmployeeTargetRow = {
+  id: string
+  company: string
+  division: string
+  employee_count: number
+}
+
 export default function DashboardPage() {
   const router = useRouter()
 
   const [rows, setRows] = useState<SubmissionRow[]>([])
+  const [employeeTargets, setEmployeeTargets] = useState<EmployeeTargetRow[]>([])
   const [loading, setLoading] = useState(true)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
@@ -65,13 +73,17 @@ export default function DashboardPage() {
   const [fixedFilter, setFixedFilter] = useState('all')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(
+    new Date().toISOString().slice(0, 7)
+  )
 
   const [selectedImage, setSelectedImage] = useState<{
     url: string
     name: string
   } | null>(null)
 
-  const [selectedSubmission, setSelectedSubmission] = useState<SubmissionRow | null>(null)
+  const [selectedSubmission, setSelectedSubmission] =
+    useState<SubmissionRow | null>(null)
 
   useEffect(() => {
     const checkUser = async () => {
@@ -136,6 +148,15 @@ export default function DashboardPage() {
         return
       }
 
+      const { data: targets, error: targetsError } = await supabase
+        .from('employee_targets')
+        .select('id, company, division, employee_count')
+        .order('company', { ascending: true })
+
+      if (targetsError) {
+        console.error('Targets error:', targetsError)
+      }
+
       const merged = (submissions || []).map((submission) => {
         const matchedImages = (images || []).filter(
           (img) => String(img.submission_id) === String(submission.id)
@@ -148,6 +169,7 @@ export default function DashboardPage() {
       })
 
       setRows(merged as SubmissionRow[])
+      setEmployeeTargets((targets || []) as EmployeeTargetRow[])
       setLoading(false)
     }
 
@@ -243,6 +265,14 @@ export default function DashboardPage() {
     endDate
   ])
 
+  const monthlyRows = useMemo(() => {
+    return filteredRows.filter((row) => {
+      const monthSource =
+        (row.report_date || row.submitted_at?.slice(0, 10) || '').slice(0, 7)
+      return monthSource === selectedMonth
+    })
+  }, [filteredRows, selectedMonth])
+
   const totalReports = filteredRows.length
   const fixedCount = filteredRows.filter((r) => r.fixed_problem === true).length
   const notFixedCount = filteredRows.filter((r) => r.fixed_problem === false).length
@@ -250,7 +280,8 @@ export default function DashboardPage() {
   const companyPieData = [
     {
       name: 'Preload',
-      value: filteredRows.filter((r) => (r.company || 'Preload') === 'Preload').length
+      value: filteredRows.filter((r) => (r.company || 'Preload') === 'Preload')
+        .length
     },
     {
       name: 'Caldwell',
@@ -285,20 +316,120 @@ export default function DashboardPage() {
     }, {} as Record<string, { date: string; count: number }>)
   ).sort((a, b) => a.date.localeCompare(b.date))
 
+  const overallEmployeeCount = employeeTargets.reduce(
+    (sum, row) => sum + row.employee_count,
+    0
+  )
+  const overallRequired = overallEmployeeCount * 2
+  const overallActual = monthlyRows.length
+  const overallCompletion =
+    overallRequired > 0 ? Math.round((overallActual / overallRequired) * 100) : 0
+
+  const preloadTargets = employeeTargets.filter((t) => t.company === 'Preload')
+  const caldwellTargets = employeeTargets.filter((t) => t.company === 'Caldwell')
+
+  const preloadEmployeeCount = preloadTargets.reduce(
+    (sum, row) => sum + row.employee_count,
+    0
+  )
+  const caldwellEmployeeCount = caldwellTargets.reduce(
+    (sum, row) => sum + row.employee_count,
+    0
+  )
+
+  const preloadRequired = preloadEmployeeCount * 2
+  const caldwellRequired = caldwellEmployeeCount * 2
+
+  const preloadActual = monthlyRows.filter((r) => r.company === 'Preload').length
+  const caldwellActual = monthlyRows.filter((r) => r.company === 'Caldwell').length
+
+  const preloadCompletion =
+    preloadRequired > 0 ? Math.round((preloadActual / preloadRequired) * 100) : 0
+
+  const caldwellCompletion =
+    caldwellRequired > 0
+      ? Math.round((caldwellActual / caldwellRequired) * 100)
+      : 0
+
+  const divisionCompletion = employeeTargets.map((target) => {
+    const actual = monthlyRows.filter(
+      (row) => row.company === target.company && row.division === target.division
+    ).length
+
+    const required = target.employee_count * 2
+    const percent = required > 0 ? Math.round((actual / required) * 100) : 0
+
+    return {
+      ...target,
+      actual,
+      required,
+      percent
+    }
+  })
+
+  const updateEmployeeCount = async (
+    company: string,
+    division: string,
+    employeeCount: number
+  ) => {
+    const { error } = await supabase
+      .from('employee_targets')
+      .upsert(
+        [
+          {
+            company,
+            division,
+            employee_count: employeeCount
+          }
+        ],
+        {
+          onConflict: 'company,division'
+        }
+      )
+
+    if (error) {
+      console.error('Failed updating employee count:', error)
+      return
+    }
+
+    setEmployeeTargets((prev) => {
+      const existing = prev.find(
+        (item) => item.company === company && item.division === division
+      )
+
+      if (existing) {
+        return prev.map((item) =>
+          item.company === company && item.division === division
+            ? { ...item, employee_count: employeeCount }
+            : item
+        )
+      }
+
+      return [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          company,
+          division,
+          employee_count: employeeCount
+        }
+      ]
+    })
+  }
+
   const inputClass =
     'w-full rounded-lg border border-gray-400 bg-white p-3 text-black placeholder:text-gray-500 [color:black] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
 
-  if (checkingAuth) {
-    return (
-      <main
-  className={`min-h-screen p-6 text-white ${
+  const dashboardBackground =
     companyFilter === 'Caldwell'
       ? 'bg-gradient-to-br from-green-900 via-green-700 to-green-500'
       : companyFilter === 'Preload'
       ? 'bg-gradient-to-br from-red-900 via-red-700 to-red-500'
       : 'bg-gradient-to-br from-red-900 via-red-700 to-green-800'
-  }`}
->
+
+  if (checkingAuth) {
+    return (
+      <main className={`min-h-screen p-6 text-white ${dashboardBackground}`}>
         <div className="mx-auto max-w-7xl">
           <p className="text-lg font-medium">Checking login...</p>
         </div>
@@ -307,15 +438,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <main
-  className={`min-h-screen p-6 text-white ${
-    companyFilter === 'Caldwell'
-      ? 'bg-gradient-to-br from-green-900 via-green-700 to-green-500'
-      : companyFilter === 'Preload'
-      ? 'bg-gradient-to-br from-red-900 via-red-700 to-red-500'
-      : 'bg-gradient-to-br from-red-900 via-red-700 to-green-800'
-  }`}
->
+    <main className={`min-h-screen p-6 text-white ${dashboardBackground}`}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -375,6 +498,129 @@ export default function DashboardPage() {
           </button>
         </div>
 
+        <div className="mb-6 rounded-2xl bg-white p-4 shadow">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-black">Monthly Completion</h2>
+              <p className="text-sm text-gray-600">
+                Requirement: 2 reports per month per employee
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-black">
+                Month
+              </label>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          <div className="mb-6 grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl bg-gray-50 p-4">
+              <p className="text-sm text-gray-500">Overall Completion</p>
+              <p className="mt-2 text-3xl font-bold text-gray-900">
+                {overallCompletion}%
+              </p>
+              <p className="mt-1 text-sm text-gray-600">
+                {overallActual} / {overallRequired}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-red-50 p-4">
+              <p className="text-sm text-gray-500">Preload Completion</p>
+              <p className="mt-2 text-3xl font-bold text-red-700">
+                {preloadCompletion}%
+              </p>
+              <p className="mt-1 text-sm text-gray-600">
+                {preloadActual} / {preloadRequired}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-green-50 p-4">
+              <p className="text-sm text-gray-500">Caldwell Completion</p>
+              <p className="mt-2 text-3xl font-bold text-green-700">
+                {caldwellCompletion}%
+              </p>
+              <p className="mt-1 text-sm text-gray-600">
+                {caldwellActual} / {caldwellRequired}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div>
+              <h3 className="mb-3 text-lg font-semibold text-black">
+                Employee Counts
+              </h3>
+              <div className="space-y-3">
+                {employeeTargets.map((target) => (
+                  <div
+                    key={`${target.company}-${target.division}`}
+                    className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-3 md:grid-cols-3"
+                  >
+                    <div className="text-sm text-gray-900">
+                      <div className="font-semibold">{target.company}</div>
+                      <div className="text-gray-600">{target.division}</div>
+                    </div>
+
+                    <div className="flex items-center text-sm text-gray-600">
+                      Required: {target.employee_count * 2}
+                    </div>
+
+                    <input
+                      type="number"
+                      min="0"
+                      value={target.employee_count}
+                      onChange={(e) =>
+                        updateEmployeeCount(
+                          target.company,
+                          target.division,
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className={inputClass}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-lg font-semibold text-black">
+                Division Completion
+              </h3>
+              <div className="space-y-3">
+                {divisionCompletion.map((item) => (
+                  <div
+                    key={`${item.company}-${item.division}`}
+                    className="rounded-lg border border-gray-200 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-gray-900">
+                          {item.company} / {item.division}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          {item.actual} / {item.required}
+                        </p>
+                      </div>
+
+                      <p className="text-xl font-bold text-gray-900">
+                        {item.percent}%
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <div className="rounded-2xl bg-white/95 p-5 shadow">
             <p className="text-sm text-gray-500">Total Reports</p>
@@ -388,13 +634,17 @@ export default function DashboardPage() {
 
           <div className="rounded-2xl bg-red-50 p-5 shadow">
             <p className="text-sm text-gray-500">Not Fixed</p>
-            <p className="mt-2 text-3xl font-bold text-red-600">{notFixedCount}</p>
+            <p className="mt-2 text-3xl font-bold text-red-600">
+              {notFixedCount}
+            </p>
           </div>
         </div>
 
         <div className="mb-6 grid gap-6 xl:grid-cols-2">
           <div className="rounded-2xl bg-white p-4 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Company Split</h2>
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">
+              Company Split
+            </h2>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -415,7 +665,9 @@ export default function DashboardPage() {
           </div>
 
           <div className="rounded-2xl bg-white p-4 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Reports Over Time</h2>
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">
+              Reports Over Time
+            </h2>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={reportsOverTime}>
@@ -423,7 +675,12 @@ export default function DashboardPage() {
                   <XAxis dataKey="date" stroke="#374151" />
                   <YAxis allowDecimals={false} stroke="#374151" />
                   <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={3} />
+                  <Line
+                    type="monotone"
+                    dataKey="count"
+                    stroke="#2563eb"
+                    strokeWidth={3}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -449,7 +706,9 @@ export default function DashboardPage() {
           </div>
 
           <div className="rounded-2xl bg-white p-4 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-gray-900">Reports by Location</h2>
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">
+              Reports by Location
+            </h2>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={reportsByLocation}>
@@ -646,9 +905,11 @@ export default function DashboardPage() {
 
                     <div>
                       <p className="mb-1 text-sm font-medium text-gray-900">
-                        {row.company === 'Caldwell' ? 'What was observed?' : 'What happened?'}
+                        {row.company === 'Caldwell'
+                          ? 'What was observed?'
+                          : 'What happened?'}
                       </p>
-                      <p className="text-sm text-gray-700 line-clamp-3">
+                      <p className="line-clamp-3 text-sm text-gray-700">
                         {row.company === 'Caldwell'
                           ? row.observed_response || '—'
                           : row.what_happened || '—'}
@@ -680,7 +941,8 @@ export default function DashboardPage() {
                     {selectedSubmission.name || 'No name'}
                   </h2>
                   <p className="text-lg font-medium text-blue-700">
-                    {selectedSubmission.company || 'Preload'} • {selectedSubmission.location || 'No location'}
+                    {selectedSubmission.company || 'Preload'} •{' '}
+                    {selectedSubmission.location || 'No location'}
                   </p>
                 </div>
 
@@ -724,12 +986,16 @@ export default function DashboardPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-xl bg-gray-50 p-4">
                   <p className="text-sm font-medium text-gray-500">Division</p>
-                  <p className="mt-1 text-gray-900">{selectedSubmission.division || '—'}</p>
+                  <p className="mt-1 text-gray-900">
+                    {selectedSubmission.division || '—'}
+                  </p>
                 </div>
 
                 <div className="rounded-xl bg-gray-50 p-4">
                   <p className="text-sm font-medium text-gray-500">
-                    {selectedSubmission.company === 'Caldwell' ? 'Supervisor' : 'Superintendent'}
+                    {selectedSubmission.company === 'Caldwell'
+                      ? 'Supervisor'
+                      : 'Superintendent'}
                   </p>
                   <p className="mt-1 text-gray-900">
                     {getLeaderName(selectedSubmission) || '—'}
@@ -757,14 +1023,18 @@ export default function DashboardPage() {
                 {selectedSubmission.company === 'Preload' ? (
                   <>
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">What happened?</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        What happened?
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.what_happened || '—'}
                       </p>
                     </div>
 
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">Corrective actions</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        Corrective actions
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.corrective_actions || '—'}
                       </p>
@@ -773,14 +1043,18 @@ export default function DashboardPage() {
                 ) : (
                   <>
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">What was observed?</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        What was observed?
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.observed_category || '—'}
                       </p>
                     </div>
 
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">Observed detail</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        Observed detail
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.observed_subcategory || '—'}
                       </p>
@@ -794,28 +1068,36 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">How did it happen?</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        How did it happen?
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.how_did_it_happen || '—'}
                       </p>
                     </div>
 
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">How was it fixed?</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        How was it fixed?
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.how_was_it_fixed || '—'}
                       </p>
                     </div>
 
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">What should we learn?</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        What should we learn?
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.what_should_we_learn || '—'}
                       </p>
                     </div>
 
                     <div className="rounded-xl bg-gray-50 p-4 md:col-span-2">
-                      <p className="text-sm font-medium text-gray-500">How could it be prevented?</p>
+                      <p className="text-sm font-medium text-gray-500">
+                        How could it be prevented?
+                      </p>
                       <p className="mt-1 text-gray-900">
                         {selectedSubmission.how_could_it_be_prevented || '—'}
                       </p>
