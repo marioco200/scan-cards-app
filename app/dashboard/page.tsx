@@ -290,7 +290,15 @@ export default function DashboardPage() {
 
   if (checkingAuth) {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-red-900 via-red-700 to-green-800 p-6 text-white">
+      <main
+  className={`min-h-screen p-6 text-white ${
+    companyFilter === 'Caldwell'
+      ? 'bg-gradient-to-br from-green-900 via-green-700 to-green-500'
+      : companyFilter === 'Preload'
+      ? 'bg-gradient-to-br from-red-900 via-red-700 to-red-500'
+      : 'bg-gradient-to-br from-red-900 via-red-700 to-green-800'
+  }`}
+>
         <div className="mx-auto max-w-7xl">
           <p className="text-lg font-medium">Checking login...</p>
         </div>
@@ -299,7 +307,15 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-red-900 via-red-700 to-green-800 p-6 text-white">
+    <main
+  className={`min-h-screen p-6 text-white ${
+    companyFilter === 'Caldwell'
+      ? 'bg-gradient-to-br from-green-900 via-green-700 to-green-500'
+      : companyFilter === 'Preload'
+      ? 'bg-gradient-to-br from-red-900 via-red-700 to-red-500'
+      : 'bg-gradient-to-br from-red-900 via-red-700 to-green-800'
+  }`}
+>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
