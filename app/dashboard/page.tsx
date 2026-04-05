@@ -531,24 +531,34 @@ const visibleDivisionCompletion =
     <main className={`min-h-screen p-6 text-white ${dashboardBackground}`}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-white">SCAN Cards</h1>
-            <p className="text-white/90">
-              Review reports for Preload and Caldwell.
-            </p>
-          </div>
+  <div>
+    <h1 className="text-3xl font-bold text-white">SCAN Cards</h1>
+    <p className="text-white/90">
+      Review reports for Preload and Caldwell.
+    </p>
+  </div>
 
-          <button
-            type="button"
-            onClick={async () => {
-              await supabase.auth.signOut()
-              router.push('/login')
-            }}
-            className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow hover:bg-gray-100"
-          >
-            Logout
-          </button>
-        </div>
+  <div className="flex flex-wrap gap-3">
+    <button
+      type="button"
+      onClick={() => router.push('/contacts')}
+      className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow hover:bg-gray-100"
+    >
+      Contact List
+    </button>
+
+    <button
+      type="button"
+      onClick={async () => {
+        await supabase.auth.signOut()
+        router.push('/login')
+      }}
+      className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow hover:bg-gray-100"
+    >
+      Logout
+    </button>
+  </div>
+</div>
 
         <div className="mb-6 flex flex-wrap gap-3">
           <button
