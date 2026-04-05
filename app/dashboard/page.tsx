@@ -385,6 +385,15 @@ export default function DashboardPage() {
       percent
     }
   })
+const visibleEmployeeTargets =
+  companyFilter === 'all'
+    ? employeeTargets
+    : employeeTargets.filter((t) => t.company === companyFilter)
+
+const visibleDivisionCompletion =
+  companyFilter === 'all'
+    ? divisionCompletion
+    : divisionCompletion.filter((t) => t.company === companyFilter)
 
   const saveEmployeeTarget = async () => {
     setTargetMessage('')
@@ -696,7 +705,7 @@ export default function DashboardPage() {
                 Current Employee Counts
               </h3>
               <div className="space-y-3">
-                {employeeTargets.length === 0 ? (
+                {visibleEmployeeTargets.length === 0 ? (
                   <p className="text-sm text-gray-600">No employee counts saved yet.</p>
                 ) : (
                   employeeTargets.map((target) => {
@@ -752,11 +761,12 @@ export default function DashboardPage() {
               <h3 className="mb-3 text-lg font-semibold text-black">
                 Division Completion
               </h3>
+              
               <div className="space-y-3">
-                {divisionCompletion.length === 0 ? (
+                {visibleDivisionCompletion.length === 0 ? (
                   <p className="text-sm text-gray-600">No division targets yet.</p>
                 ) : (
-                  divisionCompletion.map((item) => (
+                  visibleDivisionCompletion.map((item) => (
                     <div
                       key={`${item.company}-${item.division}`}
                       className="rounded-lg border border-gray-200 p-3"
