@@ -79,8 +79,11 @@ export default function InspectionsPage() {
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
 
   const [activeTemplate, setActiveTemplate] = useState<TemplateRow | null>(null)
-  const [leaderName, setLeaderName] = useState('')
-  const [fillAnswers, setFillAnswers] = useState<FillAnswer[]>([])
+const [leaderName, setLeaderName] = useState('')
+const [fillAnswers, setFillAnswers] = useState<FillAnswer[]>([])
+
+const [selectedSubmission, setSelectedSubmission] = useState<SubmissionRow | null>(null)
+const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
 
   const inputClass =
     'w-full rounded-lg border border-gray-300 bg-white p-3 text-black placeholder:text-gray-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
@@ -546,6 +549,9 @@ export default function InspectionsPage() {
 
   const getSubmissionById = (submissionId: string) =>
     submissions.find((s) => s.id === submissionId)
+  const openSubmittedInspection = (submission: SubmissionRow) => {
+  setSelectedSubmission(submission)
+}
 
   if (checkingAuth) {
     return (
@@ -1034,7 +1040,11 @@ export default function InspectionsPage() {
                   </thead>
                   <tbody>
                     {filteredSubmitted.map((submission) => (
-                      <tr key={submission.id} className="border-b">
+  <tr
+    key={submission.id}
+    className="cursor-pointer border-b hover:bg-gray-50"
+    onClick={() => openSubmittedInspection(submission)}
+  >
                         <td className="px-3 py-2 font-semibold">{submission.template_name}</td>
                         <td className="px-3 py-2">{submission.company}</td>
                         <td className="px-3 py-2">{submission.leader_name || '—'}</td>
@@ -1043,8 +1053,11 @@ export default function InspectionsPage() {
                         </td>
                         <td className="px-3 py-2">
                           <button
-                            type="button"
-                            onClick={() => deleteSubmission(submission.id)}
+  type="button"
+  onClick={(e) => {
+    e.stopPropagation()
+    deleteSubmission(submission.id)
+  }}
                             className="rounded bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700"
                           >
                             Delete
@@ -1112,14 +1125,20 @@ export default function InspectionsPage() {
 
                           <td className="px-3 py-2">
                             {issue.photo_url ? (
-                              <img
-                                src={issue.photo_url}
-                                alt="Issue preview"
-                                className="h-12 w-12 rounded object-cover"
-                              />
-                            ) : (
-                              '—'
-                            )}
+  <button
+    type="button"
+    onClick={() => setSelectedImageUrl(issue.photo_url!)}
+    className="block"
+  >
+    <img
+      src={issue.photo_url}
+      alt="Issue preview"
+      className="h-12 w-12 rounded object-cover hover:opacity-90"
+    />
+  </button>
+) : (
+  '—'
+)}
                           </td>
 
                           <td className="px-3 py-2">
@@ -1144,13 +1163,113 @@ export default function InspectionsPage() {
             )}
           </div>
         )}
+{selectedSubmission && (
+  <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+    <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">
+            Submitted Inspection Details
+          </h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Template: {selectedSubmission.template_name}
+          </p>
+          <p className="text-sm text-gray-600">
+            Company: {selectedSubmission.company}
+          </p>
+          <p className="text-sm text-gray-600">
+            Superintendent/Foreman: {selectedSubmission.leader_name || '—'}
+          </p>
+          <p className="text-sm text-gray-600">
+            Submitted: {new Date(selectedSubmission.submitted_at).toLocaleString()}
+          </p>
+        </div>
 
+        <button
+          type="button"
+          onClick={() => setSelectedSubmission(null)}
+          className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-semibold text-black hover:bg-gray-300"
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        {answers
+          .filter((a) => a.submission_id === selectedSubmission.id)
+          .map((answer, index) => (
+            <div
+              key={answer.id}
+              className="rounded-xl border border-gray-200 p-4"
+            >
+              <p className="mb-2 font-semibold text-black">
+                {index + 1}. {answer.question_text}
+              </p>
+
+              <div className="mb-3">
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    answer.status === 'issue'
+                      ? 'bg-red-600 text-white'
+                      : answer.status === 'fixed'
+                      ? 'bg-green-600 text-white'
+                      : answer.status === 'safe'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-600 text-white'
+                  }`}
+                >
+                  {answer.status.toUpperCase()}
+                </span>
+              </div>
+
+              <p className="mb-3 text-sm text-gray-700">
+                <span className="font-semibold">Note:</span> {answer.note || '—'}
+              </p>
+
+              {answer.photo_url && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedImageUrl(answer.photo_url)}
+                  className="block"
+                >
+                  <img
+                    src={answer.photo_url}
+                    alt="Inspection answer"
+                    className="h-28 w-28 rounded-lg object-cover hover:opacity-90"
+                  />
+                </button>
+              )}
+            </div>
+          ))}
+      </div>
+    </div>
+  </div>
+)}
         {loading && (
           <div className="mt-6 rounded-2xl bg-white p-4 text-sm font-medium text-gray-800 shadow">
             Loading inspections...
           </div>
         )}
       </div>
+      {selectedImageUrl && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+    <div className="relative max-h-[90vh] max-w-5xl">
+      <button
+        type="button"
+        onClick={() => setSelectedImageUrl(null)}
+        className="absolute right-2 top-2 rounded-full bg-white px-3 py-1 text-sm font-semibold text-black shadow hover:bg-gray-200"
+      >
+        Close
+      </button>
+
+      <img
+        src={selectedImageUrl}
+        alt="Expanded preview"
+        className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl"
+      />
+    </div>
+  </div>
+)}
     </main>
   )
 }
