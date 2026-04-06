@@ -5,11 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type CompanyType = 'Preload' | 'Caldwell'
-type TabType =
-  | 'create'
-  | 'submitted'
-  | 'issues'
-  | 'templates'
+type TabType = 'create' | 'submitted' | 'issues' | 'templates'
 
 type TemplateRow = {
   id: string
@@ -54,6 +50,11 @@ type FillAnswer = {
   file: File | null
 }
 
+type BuilderQuestion = {
+  id: string
+  question_text: string
+}
+
 export default function InspectionsPage() {
   const router = useRouter()
 
@@ -72,9 +73,10 @@ export default function InspectionsPage() {
   const [message, setMessage] = useState('')
 
   const [templateName, setTemplateName] = useState('')
-  const [builderQuestions, setBuilderQuestions] = useState([
+  const [builderQuestions, setBuilderQuestions] = useState<BuilderQuestion[]>([
     { id: crypto.randomUUID(), question_text: '' }
   ])
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
 
   const [activeTemplate, setActiveTemplate] = useState<TemplateRow | null>(null)
   const [leaderName, setLeaderName] = useState('')
@@ -108,10 +110,22 @@ export default function InspectionsPage() {
 
     const [{ data: tData }, { data: qData }, { data: sData }, { data: aData }] =
       await Promise.all([
-        supabase.from('inspection_templates').select('*').order('created_at', { ascending: false }),
-        supabase.from('inspection_template_questions').select('*').order('sort_order', { ascending: true }),
-        supabase.from('inspection_submissions').select('*').order('submitted_at', { ascending: false }),
-        supabase.from('inspection_answers').select('*').order('created_at', { ascending: false })
+        supabase
+          .from('inspection_templates')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('inspection_template_questions')
+          .select('*')
+          .order('sort_order', { ascending: true }),
+        supabase
+          .from('inspection_submissions')
+          .select('*')
+          .order('submitted_at', { ascending: false }),
+        supabase
+          .from('inspection_answers')
+          .select('*')
+          .order('created_at', { ascending: false })
       ])
 
     setTemplates((tData || []) as TemplateRow[])
@@ -126,6 +140,12 @@ export default function InspectionsPage() {
     if (checkingAuth) return
     loadAll()
   }, [checkingAuth])
+
+  const resetTemplateBuilder = () => {
+    setEditingTemplateId(null)
+    setTemplateName('')
+    setBuilderQuestions([{ id: crypto.randomUUID(), question_text: '' }])
+  }
 
   const companyTemplates = useMemo(() => {
     return templates.filter((t) => t.company === company)
@@ -160,10 +180,12 @@ export default function InspectionsPage() {
   }, [answers, submissions, company, leaderFilter])
 
   const inspectionsDoneCount = submissions.filter((s) => s.company === company).length
+
   const issuesCount = answers.filter((a) => {
     const sub = submissions.find((s) => s.id === a.submission_id)
     return sub?.company === company && a.status === 'issue'
   }).length
+
   const fixedCount = answers.filter((a) => {
     const sub = submissions.find((s) => s.id === a.submission_id)
     return sub?.company === company && a.status === 'fixed'
@@ -172,6 +194,7 @@ export default function InspectionsPage() {
   const openTemplate = (template: TemplateRow) => {
     setActiveTemplate(template)
     setLeaderName('')
+
     const templateQuestions = questions
       .filter((q) => q.template_id === template.id)
       .sort((a, b) => a.sort_order - b.sort_order)
@@ -189,11 +212,42 @@ export default function InspectionsPage() {
     setTab('templates')
   }
 
+  const editTemplate = (template: TemplateRow) => {
+    setEditingTemplateId(template.id)
+    setCompany(template.company)
+    setTemplateName(template.name)
+
+    const templateQuestions = questions
+      .filter((q) => q.template_id === template.id)
+      .sort((a, b) => a.sort_order - b.sort_order)
+
+    setBuilderQuestions(
+      templateQuestions.length > 0
+        ? templateQuestions.map((q) => ({
+            id: q.id,
+            question_text: q.question_text
+          }))
+        : [{ id: crypto.randomUUID(), question_text: '' }]
+    )
+
+    setMessage(`Editing template: ${template.name}`)
+    setTab('create')
+  }
+
   const addQuestion = () => {
     setBuilderQuestions((prev) => [
       ...prev,
       { id: crypto.randomUUID(), question_text: '' }
     ])
+  }
+
+  const removeQuestion = (id: string) => {
+    setBuilderQuestions((prev) => {
+      if (prev.length === 1) {
+        return [{ id: crypto.randomUUID(), question_text: '' }]
+      }
+      return prev.filter((q) => q.id !== id)
+    })
   }
 
   const updateQuestion = (id: string, value: string) => {
@@ -216,6 +270,52 @@ export default function InspectionsPage() {
 
     if (cleanQuestions.length === 0) {
       setMessage('Please add at least one question.')
+      return
+    }
+
+    if (editingTemplateId) {
+      const { error: templateUpdateError } = await supabase
+        .from('inspection_templates')
+        .update({
+          company,
+          name: templateName.trim()
+        })
+        .eq('id', editingTemplateId)
+
+      if (templateUpdateError) {
+        setMessage(`Error: ${templateUpdateError.message}`)
+        return
+      }
+
+      const { error: deleteQuestionsError } = await supabase
+        .from('inspection_template_questions')
+        .delete()
+        .eq('template_id', editingTemplateId)
+
+      if (deleteQuestionsError) {
+        setMessage(`Error: ${deleteQuestionsError.message}`)
+        return
+      }
+
+      const questionRows = cleanQuestions.map((questionText, index) => ({
+        template_id: editingTemplateId,
+        question_text: questionText,
+        sort_order: index + 1
+      }))
+
+      const { error: insertQuestionsError } = await supabase
+        .from('inspection_template_questions')
+        .insert(questionRows)
+
+      if (insertQuestionsError) {
+        setMessage(`Error: ${insertQuestionsError.message}`)
+        return
+      }
+
+      resetTemplateBuilder()
+      setMessage('Inspection template updated.')
+      await loadAll()
+      setTab('templates')
       return
     }
 
@@ -250,17 +350,54 @@ export default function InspectionsPage() {
       return
     }
 
-    setTemplateName('')
-    setBuilderQuestions([{ id: crypto.randomUUID(), question_text: '' }])
+    resetTemplateBuilder()
     setMessage('Inspection template created.')
     await loadAll()
     setTab('templates')
   }
 
-  const updateFillAnswer = (
-    index: number,
-    updates: Partial<FillAnswer>
-  ) => {
+  const deleteTemplate = async (templateId: string) => {
+    const submissionCount = submissions.filter((s) => s.template_id === templateId).length
+
+    if (submissionCount > 0) {
+      setMessage(
+        'This template already has submitted inspections and cannot be deleted safely.'
+      )
+      return
+    }
+
+    const confirmed = window.confirm('Delete this template?')
+    if (!confirmed) return
+
+    const { error: questionDeleteError } = await supabase
+      .from('inspection_template_questions')
+      .delete()
+      .eq('template_id', templateId)
+
+    if (questionDeleteError) {
+      setMessage(`Error: ${questionDeleteError.message}`)
+      return
+    }
+
+    const { error: templateDeleteError } = await supabase
+      .from('inspection_templates')
+      .delete()
+      .eq('id', templateId)
+
+    if (templateDeleteError) {
+      setMessage(`Error: ${templateDeleteError.message}`)
+      return
+    }
+
+    if (editingTemplateId === templateId) {
+      resetTemplateBuilder()
+    }
+
+    setMessage('Template deleted.')
+    await loadAll()
+  }
+
+  const updateFillAnswer = (index: number, updates: Partial<FillAnswer>) => {
     setFillAnswers((prev) =>
       prev.map((item, i) => (i === index ? { ...item, ...updates } : item))
     )
@@ -357,6 +494,42 @@ export default function InspectionsPage() {
     setTab('submitted')
   }
 
+  const deleteSubmission = async (submissionId: string) => {
+    const confirmed = window.confirm('Delete this submitted inspection?')
+    if (!confirmed) return
+
+    const submissionAnswers = answers.filter((a) => a.submission_id === submissionId)
+
+    for (const answer of submissionAnswers) {
+      if (answer.photo_path) {
+        await supabase.storage.from('inspection-photos').remove([answer.photo_path])
+      }
+    }
+
+    const { error: answerDeleteError } = await supabase
+      .from('inspection_answers')
+      .delete()
+      .eq('submission_id', submissionId)
+
+    if (answerDeleteError) {
+      setMessage(`Error: ${answerDeleteError.message}`)
+      return
+    }
+
+    const { error: submissionDeleteError } = await supabase
+      .from('inspection_submissions')
+      .delete()
+      .eq('id', submissionId)
+
+    if (submissionDeleteError) {
+      setMessage(`Error: ${submissionDeleteError.message}`)
+      return
+    }
+
+    setMessage('Submitted inspection deleted.')
+    await loadAll()
+  }
+
   const markIssueFixed = async (answerId: string) => {
     const { error } = await supabase
       .from('inspection_answers')
@@ -433,9 +606,7 @@ export default function InspectionsPage() {
               setLeaderFilter('')
             }}
             className={`rounded-full px-4 py-2 text-sm font-semibold ${
-              company === 'Preload'
-                ? 'bg-white text-gray-900'
-                : 'bg-white/20 text-white'
+              company === 'Preload' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
             }`}
           >
             Preload
@@ -448,9 +619,7 @@ export default function InspectionsPage() {
               setLeaderFilter('')
             }}
             className={`rounded-full px-4 py-2 text-sm font-semibold ${
-              company === 'Caldwell'
-                ? 'bg-white text-gray-900'
-                : 'bg-white/20 text-white'
+              company === 'Caldwell' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
             }`}
           >
             Caldwell
@@ -459,30 +628,25 @@ export default function InspectionsPage() {
 
         {issuesCount > 0 && (
           <div className="mb-6 rounded-2xl border border-red-300 bg-red-50 p-4 text-red-800 shadow">
-            Notification: {issuesCount} open issue{issuesCount === 1 ? '' : 's'} submitted for {company}.
+            Notification: {issuesCount} open issue{issuesCount === 1 ? '' : 's'} submitted
+            for {company}.
           </div>
         )}
 
         <div className="mb-6 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl bg-white p-5 shadow">
             <p className="text-sm text-gray-500">Inspections Done</p>
-            <p className="mt-2 text-3xl font-bold text-gray-900">
-              {inspectionsDoneCount}
-            </p>
+            <p className="mt-2 text-3xl font-bold text-gray-900">{inspectionsDoneCount}</p>
           </div>
 
           <div className="rounded-2xl bg-red-50 p-5 shadow">
             <p className="text-sm text-gray-500">Issues Count</p>
-            <p className="mt-2 text-3xl font-bold text-red-700">
-              {issuesCount}
-            </p>
+            <p className="mt-2 text-3xl font-bold text-red-700">{issuesCount}</p>
           </div>
 
           <div className="rounded-2xl bg-green-50 p-5 shadow">
             <p className="text-sm text-gray-500">Fixed Count</p>
-            <p className="mt-2 text-3xl font-bold text-green-700">
-              {fixedCount}
-            </p>
+            <p className="mt-2 text-3xl font-bold text-green-700">{fixedCount}</p>
           </div>
         </div>
 
@@ -558,13 +722,28 @@ export default function InspectionsPage() {
 
         {tab === 'create' && (
           <div className="rounded-2xl bg-white p-4 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-black">Create Inspection Template</h2>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-xl font-semibold text-black">
+                {editingTemplateId ? 'Edit Inspection Template' : 'Create Inspection Template'}
+              </h2>
+
+              {editingTemplateId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetTemplateBuilder()
+                    setMessage('Template edit canceled.')
+                  }}
+                  className="rounded-lg bg-gray-300 px-4 py-2 text-sm font-semibold text-black hover:bg-gray-400"
+                >
+                  Cancel Edit
+                </button>
+              )}
+            </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-1 block text-sm font-medium text-black">
-                  Company
-                </label>
+                <label className="mb-1 block text-sm font-medium text-black">Company</label>
                 <select
                   value={company}
                   onChange={(e) => setCompany(e.target.value as CompanyType)}
@@ -592,9 +771,20 @@ export default function InspectionsPage() {
             <div className="mt-6 space-y-4">
               {builderQuestions.map((question, index) => (
                 <div key={question.id} className="rounded-xl border border-gray-200 p-4">
-                  <label className="mb-1 block text-sm font-medium text-black">
-                    Question {index + 1}
-                  </label>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <label className="block text-sm font-medium text-black">
+                      Question {index + 1}
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => removeQuestion(question.id)}
+                      className="rounded-lg bg-red-100 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-200"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
                   <input
                     type="text"
                     value={question.question_text}
@@ -639,7 +829,7 @@ export default function InspectionsPage() {
                 onClick={saveTemplate}
                 className="rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
               >
-                Save Template
+                {editingTemplateId ? 'Update Template' : 'Save Template'}
               </button>
             </div>
           </div>
@@ -654,9 +844,7 @@ export default function InspectionsPage() {
                     <h2 className="text-xl font-semibold text-black">
                       Fill Inspection: {activeTemplate.name}
                     </h2>
-                    <p className="text-sm text-gray-600">
-                      Company: {activeTemplate.company}
-                    </p>
+                    <p className="text-sm text-gray-600">Company: {activeTemplate.company}</p>
                   </div>
 
                   <button
@@ -686,7 +874,10 @@ export default function InspectionsPage() {
 
                 <div className="space-y-4">
                   {fillAnswers.map((item, index) => (
-                    <div key={item.template_question_id} className="rounded-xl border border-gray-200 p-4">
+                    <div
+                      key={item.template_question_id}
+                      className="rounded-xl border border-gray-200 p-4"
+                    >
                       <p className="mb-3 font-semibold text-black">
                         {index + 1}. {item.question_text}
                       </p>
@@ -711,10 +902,10 @@ export default function InspectionsPage() {
                                 ? option.value === 'issue'
                                   ? 'bg-red-600 text-white'
                                   : option.value === 'fixed'
-                                  ? 'bg-green-600 text-white'
-                                  : option.value === 'safe'
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-gray-700 text-white'
+                                    ? 'bg-green-600 text-white'
+                                    : option.value === 'safe'
+                                      ? 'bg-blue-600 text-white'
+                                      : 'bg-gray-700 text-white'
                                 : 'bg-gray-100 text-gray-700'
                             }`}
                           >
@@ -730,9 +921,7 @@ export default function InspectionsPage() {
                           </label>
                           <textarea
                             value={item.note}
-                            onChange={(e) =>
-                              updateFillAnswer(index, { note: e.target.value })
-                            }
+                            onChange={(e) => updateFillAnswer(index, { note: e.target.value })}
                             className={`${inputClass} min-h-[110px]`}
                             placeholder="Add note"
                           />
@@ -771,9 +960,7 @@ export default function InspectionsPage() {
             )}
 
             <div className="rounded-2xl bg-white p-4 shadow">
-              <h2 className="mb-4 text-xl font-semibold text-black">
-                Inspection Templates
-              </h2>
+              <h2 className="mb-4 text-xl font-semibold text-black">Inspection Templates</h2>
 
               {companyTemplates.length === 0 ? (
                 <p className="text-gray-600">No templates yet.</p>
@@ -787,17 +974,38 @@ export default function InspectionsPage() {
                       <div>
                         <p className="font-semibold text-black">{template.name}</p>
                         <p className="text-sm text-gray-600">
-                          {questions.filter((q) => q.template_id === template.id).length} questions
+                          {
+                            questions.filter((q) => q.template_id === template.id).length
+                          }{' '}
+                          questions
                         </p>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => openTemplate(template)}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                      >
-                        Open Template
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openTemplate(template)}
+                          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        >
+                          Open
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => editTemplate(template)}
+                          className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => deleteTemplate(template.id)}
+                          className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -821,6 +1029,7 @@ export default function InspectionsPage() {
                       <th className="px-3 py-2">Company</th>
                       <th className="px-3 py-2">Superintendent/Foreman</th>
                       <th className="px-3 py-2">Submitted At</th>
+                      <th className="px-3 py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -831,6 +1040,15 @@ export default function InspectionsPage() {
                         <td className="px-3 py-2">{submission.leader_name || '—'}</td>
                         <td className="px-3 py-2">
                           {new Date(submission.submitted_at).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => deleteSubmission(submission.id)}
+                            className="rounded bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700"
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -914,7 +1132,7 @@ export default function InspectionsPage() {
                                 Convert to Fixed
                               </button>
                             ) : (
-                              <span className="text-green-700 font-semibold">Fixed</span>
+                              <span className="font-semibold text-green-700">Fixed</span>
                             )}
                           </td>
                         </tr>
