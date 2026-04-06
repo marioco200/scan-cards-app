@@ -11,6 +11,7 @@ type TemplateRow = {
   id: string
   company: CompanyType
   name: string
+  leader_name?: string | null
   created_at: string
 }
 
@@ -55,6 +56,15 @@ type BuilderQuestion = {
   question_text: string
 }
 
+type EditableSubmissionAnswer = {
+  id: string
+  question_text: string
+  status: 'safe' | 'issue' | 'fixed' | 'na'
+  note: string
+  photo_url: string | null
+  photo_path: string | null
+}
+
 export default function InspectionsPage() {
   const router = useRouter()
 
@@ -64,6 +74,7 @@ export default function InspectionsPage() {
   const [tab, setTab] = useState<TabType>('create')
   const [company, setCompany] = useState<CompanyType>('Preload')
   const [leaderFilter, setLeaderFilter] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
 
   const [templates, setTemplates] = useState<TemplateRow[]>([])
   const [questions, setQuestions] = useState<TemplateQuestionRow[]>([])
@@ -73,17 +84,21 @@ export default function InspectionsPage() {
   const [message, setMessage] = useState('')
 
   const [templateName, setTemplateName] = useState('')
+  const [templateLeaderName, setTemplateLeaderName] = useState('')
   const [builderQuestions, setBuilderQuestions] = useState<BuilderQuestion[]>([
     { id: crypto.randomUUID(), question_text: '' }
   ])
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
 
   const [activeTemplate, setActiveTemplate] = useState<TemplateRow | null>(null)
-const [leaderName, setLeaderName] = useState('')
-const [fillAnswers, setFillAnswers] = useState<FillAnswer[]>([])
+  const [leaderName, setLeaderName] = useState('')
+  const [fillAnswers, setFillAnswers] = useState<FillAnswer[]>([])
 
-const [selectedSubmission, setSelectedSubmission] = useState<SubmissionRow | null>(null)
-const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [selectedSubmission, setSelectedSubmission] = useState<SubmissionRow | null>(null)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [isEditingSubmission, setIsEditingSubmission] = useState(false)
+  const [editSubmissionLeaderName, setEditSubmissionLeaderName] = useState('')
+  const [editSubmissionAnswers, setEditSubmissionAnswers] = useState<EditableSubmissionAnswer[]>([])
 
   const inputClass =
     'w-full rounded-lg border border-gray-300 bg-white p-3 text-black placeholder:text-gray-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200'
@@ -147,40 +162,61 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
   const resetTemplateBuilder = () => {
     setEditingTemplateId(null)
     setTemplateName('')
+    setTemplateLeaderName('')
     setBuilderQuestions([{ id: crypto.randomUUID(), question_text: '' }])
   }
 
   const companyTemplates = useMemo(() => {
-    return templates.filter((t) => t.company === company)
-  }, [templates, company])
+    return templates.filter((t) => {
+      const matchesCompany = t.company === company
+      const matchesLeader = !leaderFilter || t.leader_name === leaderFilter
+      return matchesCompany && matchesLeader
+    })
+  }, [templates, company, leaderFilter])
 
   const leaderOptions = useMemo(() => {
-    const values = submissions
+    const submissionValues = submissions
       .filter((s) => s.company === company)
       .map((s) => s.leader_name?.trim())
       .filter((v): v is string => Boolean(v))
-    return Array.from(new Set(values)).sort()
-  }, [submissions, company])
+
+    const templateValues = templates
+      .filter((t) => t.company === company)
+      .map((t) => t.leader_name?.trim())
+      .filter((v): v is string => Boolean(v))
+
+    return Array.from(new Set([...submissionValues, ...templateValues])).sort()
+  }, [submissions, templates, company])
 
   const filteredSubmitted = useMemo(() => {
     return submissions.filter((s) => {
       const matchesCompany = s.company === company
       const matchesLeader = !leaderFilter || s.leader_name === leaderFilter
-      return matchesCompany && matchesLeader
+      const matchesDate =
+        !dateFilter ||
+        new Date(s.submitted_at).toISOString().slice(0, 10) === dateFilter
+
+      return matchesCompany && matchesLeader && matchesDate
     })
-  }, [submissions, company, leaderFilter])
+  }, [submissions, company, leaderFilter, dateFilter])
 
   const filteredIssues = useMemo(() => {
     const submissionMap = Object.fromEntries(submissions.map((s) => [s.id, s]))
+
     return answers.filter((a) => {
       const submission = submissionMap[a.submission_id]
       if (!submission) return false
+
       const matchesCompany = submission.company === company
       const matchesLeader = !leaderFilter || submission.leader_name === leaderFilter
       const matchesStatus = a.status === 'issue' || a.status === 'fixed'
-      return matchesCompany && matchesLeader && matchesStatus
+      const matchesDate =
+        !dateFilter ||
+        new Date(submission.submitted_at).toISOString().slice(0, 10) === dateFilter
+
+      return matchesCompany && matchesLeader && matchesStatus && matchesDate
     })
-  }, [answers, submissions, company, leaderFilter])
+  }, [answers, submissions, company, leaderFilter, dateFilter])
 
   const inspectionsDoneCount = submissions.filter((s) => s.company === company).length
 
@@ -196,7 +232,7 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
 
   const openTemplate = (template: TemplateRow) => {
     setActiveTemplate(template)
-    setLeaderName('')
+    setLeaderName(template.leader_name || '')
 
     const templateQuestions = questions
       .filter((q) => q.template_id === template.id)
@@ -219,6 +255,7 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
     setEditingTemplateId(template.id)
     setCompany(template.company)
     setTemplateName(template.name)
+    setTemplateLeaderName(template.leader_name || '')
 
     const templateQuestions = questions
       .filter((q) => q.template_id === template.id)
@@ -235,6 +272,25 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
 
     setMessage(`Editing template: ${template.name}`)
     setTab('create')
+  }
+
+  const openSubmittedInspection = (submission: SubmissionRow) => {
+    setSelectedSubmission(submission)
+    setIsEditingSubmission(false)
+    setEditSubmissionLeaderName(submission.leader_name || '')
+
+    const submissionAnswers = answers
+      .filter((a) => a.submission_id === submission.id)
+      .map((a) => ({
+        id: a.id,
+        question_text: a.question_text,
+        status: a.status,
+        note: a.note || '',
+        photo_url: a.photo_url,
+        photo_path: a.photo_path
+      }))
+
+    setEditSubmissionAnswers(submissionAnswers)
   }
 
   const addQuestion = () => {
@@ -281,7 +337,8 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
         .from('inspection_templates')
         .update({
           company,
-          name: templateName.trim()
+          name: templateName.trim(),
+          leader_name: templateLeaderName.trim()
         })
         .eq('id', editingTemplateId)
 
@@ -327,7 +384,8 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
       .insert([
         {
           company,
-          name: templateName.trim()
+          name: templateName.trim(),
+          leader_name: templateLeaderName.trim()
         }
       ])
       .select()
@@ -529,7 +587,67 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
       return
     }
 
+    if (selectedSubmission?.id === submissionId) {
+      setSelectedSubmission(null)
+      setIsEditingSubmission(false)
+    }
+
     setMessage('Submitted inspection deleted.')
+    await loadAll()
+  }
+
+  const updateEditSubmissionAnswer = (
+    answerId: string,
+    updates: Partial<EditableSubmissionAnswer>
+  ) => {
+    setEditSubmissionAnswers((prev) =>
+      prev.map((a) => (a.id === answerId ? { ...a, ...updates } : a))
+    )
+  }
+
+  const saveEditedSubmission = async () => {
+    if (!selectedSubmission) return
+
+    setMessage('')
+
+    const { error: submissionError } = await supabase
+      .from('inspection_submissions')
+      .update({
+        leader_name: editSubmissionLeaderName.trim()
+      })
+      .eq('id', selectedSubmission.id)
+
+    if (submissionError) {
+      setMessage(`Error: ${submissionError.message}`)
+      return
+    }
+
+    for (const answer of editSubmissionAnswers) {
+      const { error: answerError } = await supabase
+        .from('inspection_answers')
+        .update({
+          status: answer.status,
+          note: answer.note.trim()
+        })
+        .eq('id', answer.id)
+
+      if (answerError) {
+        setMessage(`Error: ${answerError.message}`)
+        return
+      }
+    }
+
+    setSelectedSubmission((prev) =>
+      prev
+        ? {
+            ...prev,
+            leader_name: editSubmissionLeaderName.trim() || null
+          }
+        : null
+    )
+
+    setIsEditingSubmission(false)
+    setMessage('Submitted inspection updated.')
     await loadAll()
   }
 
@@ -549,9 +667,6 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
 
   const getSubmissionById = (submissionId: string) =>
     submissions.find((s) => s.id === submissionId)
-  const openSubmittedInspection = (submission: SubmissionRow) => {
-  setSelectedSubmission(submission)
-}
 
   if (checkingAuth) {
     return (
@@ -610,6 +725,7 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
             onClick={() => {
               setCompany('Preload')
               setLeaderFilter('')
+              setDateFilter('')
             }}
             className={`rounded-full px-4 py-2 text-sm font-semibold ${
               company === 'Preload' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
@@ -623,6 +739,7 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
             onClick={() => {
               setCompany('Caldwell')
               setLeaderFilter('')
+              setDateFilter('')
             }}
             className={`rounded-full px-4 py-2 text-sm font-semibold ${
               company === 'Caldwell' ? 'bg-white text-gray-900' : 'bg-white/20 text-white'
@@ -657,7 +774,7 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
         </div>
 
         <div className="mb-6 rounded-2xl bg-white p-4 shadow">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block text-sm font-medium text-black">
                 Superintendent / Foreman
@@ -674,6 +791,18 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-black">
+                Submitted Date
+              </label>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className={inputClass}
+              />
             </div>
           </div>
         </div>
@@ -747,7 +876,7 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
               )}
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-black">Company</label>
                 <select
@@ -770,6 +899,19 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
                   onChange={(e) => setTemplateName(e.target.value)}
                   className={inputClass}
                   placeholder="Example: Weekly Scaffold Inspection"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-black">
+                  Superintendent / Foreman
+                </label>
+                <input
+                  type="text"
+                  value={templateLeaderName}
+                  onChange={(e) => setTemplateLeaderName(e.target.value)}
+                  className={inputClass}
+                  placeholder="Enter Superintendent / Foreman"
                 />
               </div>
             </div>
@@ -980,10 +1122,11 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
                       <div>
                         <p className="font-semibold text-black">{template.name}</p>
                         <p className="text-sm text-gray-600">
-                          {
-                            questions.filter((q) => q.template_id === template.id).length
-                          }{' '}
+                          {questions.filter((q) => q.template_id === template.id).length}{' '}
                           questions
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          Superintendent/Foreman: {template.leader_name || '—'}
                         </p>
                       </div>
 
@@ -1040,11 +1183,11 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
                   </thead>
                   <tbody>
                     {filteredSubmitted.map((submission) => (
-  <tr
-    key={submission.id}
-    className="cursor-pointer border-b hover:bg-gray-50"
-    onClick={() => openSubmittedInspection(submission)}
-  >
+                      <tr
+                        key={submission.id}
+                        className="cursor-pointer border-b hover:bg-gray-50"
+                        onClick={() => openSubmittedInspection(submission)}
+                      >
                         <td className="px-3 py-2 font-semibold">{submission.template_name}</td>
                         <td className="px-3 py-2">{submission.company}</td>
                         <td className="px-3 py-2">{submission.leader_name || '—'}</td>
@@ -1053,11 +1196,11 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
                         </td>
                         <td className="px-3 py-2">
                           <button
-  type="button"
-  onClick={(e) => {
-    e.stopPropagation()
-    deleteSubmission(submission.id)
-  }}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteSubmission(submission.id)
+                            }}
                             className="rounded bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700"
                           >
                             Delete
@@ -1125,20 +1268,20 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
 
                           <td className="px-3 py-2">
                             {issue.photo_url ? (
-  <button
-    type="button"
-    onClick={() => setSelectedImageUrl(issue.photo_url!)}
-    className="block"
-  >
-    <img
-      src={issue.photo_url}
-      alt="Issue preview"
-      className="h-12 w-12 rounded object-cover hover:opacity-90"
-    />
-  </button>
-) : (
-  '—'
-)}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedImageUrl(issue.photo_url!)}
+                                className="block"
+                              >
+                                <img
+                                  src={issue.photo_url}
+                                  alt="Issue preview"
+                                  className="h-12 w-12 rounded object-cover hover:opacity-90"
+                                />
+                              </button>
+                            ) : (
+                              '—'
+                            )}
                           </td>
 
                           <td className="px-3 py-2">
@@ -1163,113 +1306,202 @@ const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
             )}
           </div>
         )}
-{selectedSubmission && (
-  <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-    <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">
-            Submitted Inspection Details
-          </h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Template: {selectedSubmission.template_name}
-          </p>
-          <p className="text-sm text-gray-600">
-            Company: {selectedSubmission.company}
-          </p>
-          <p className="text-sm text-gray-600">
-            Superintendent/Foreman: {selectedSubmission.leader_name || '—'}
-          </p>
-          <p className="text-sm text-gray-600">
-            Submitted: {new Date(selectedSubmission.submitted_at).toLocaleString()}
-          </p>
-        </div>
 
-        <button
-          type="button"
-          onClick={() => setSelectedSubmission(null)}
-          className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-semibold text-black hover:bg-gray-300"
-        >
-          Close
-        </button>
-      </div>
+        {selectedImageUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+            <div className="relative max-h-[90vh] max-w-5xl">
+              <button
+                type="button"
+                onClick={() => setSelectedImageUrl(null)}
+                className="absolute right-2 top-2 rounded-full bg-white px-3 py-1 text-sm font-semibold text-black shadow hover:bg-gray-200"
+              >
+                Close
+              </button>
 
-      <div className="space-y-4">
-        {answers
-          .filter((a) => a.submission_id === selectedSubmission.id)
-          .map((answer, index) => (
-            <div
-              key={answer.id}
-              className="rounded-xl border border-gray-200 p-4"
-            >
-              <p className="mb-2 font-semibold text-black">
-                {index + 1}. {answer.question_text}
-              </p>
+              <img
+                src={selectedImageUrl}
+                alt="Expanded preview"
+                className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl"
+              />
+            </div>
+          </div>
+        )}
 
-              <div className="mb-3">
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    answer.status === 'issue'
-                      ? 'bg-red-600 text-white'
-                      : answer.status === 'fixed'
-                      ? 'bg-green-600 text-white'
-                      : answer.status === 'safe'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-600 text-white'
-                  }`}
-                >
-                  {answer.status.toUpperCase()}
-                </span>
+        {selectedSubmission && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+            <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    Submitted Inspection Details
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Template: {selectedSubmission.template_name}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Company: {selectedSubmission.company}
+                  </p>
+
+                  {isEditingSubmission ? (
+                    <div className="mt-2">
+                      <label className="mb-1 block text-sm font-medium text-black">
+                        Superintendent / Foreman
+                      </label>
+                      <input
+                        type="text"
+                        value={editSubmissionLeaderName}
+                        onChange={(e) => setEditSubmissionLeaderName(e.target.value)}
+                        className={inputClass}
+                        placeholder="Enter Superintendent / Foreman"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-600">
+                      Superintendent/Foreman: {selectedSubmission.leader_name || '—'}
+                    </p>
+                  )}
+
+                  <p className="text-sm text-gray-600">
+                    Submitted: {new Date(selectedSubmission.submitted_at).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingSubmission((prev) => !prev)}
+                    className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                  >
+                    {isEditingSubmission ? 'Cancel Edit' : 'Edit'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSubmission(null)
+                      setIsEditingSubmission(false)
+                    }}
+                    className="rounded-lg bg-gray-200 px-4 py-2 text-sm font-semibold text-black hover:bg-gray-300"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
 
-              <p className="mb-3 text-sm text-gray-700">
-                <span className="font-semibold">Note:</span> {answer.note || '—'}
-              </p>
+              <div className="space-y-4">
+                {editSubmissionAnswers.map((answer, index) => (
+                  <div key={answer.id} className="rounded-xl border border-gray-200 p-4">
+                    <p className="mb-2 font-semibold text-black">
+                      {index + 1}. {answer.question_text}
+                    </p>
 
-              {answer.photo_url && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedImageUrl(answer.photo_url)}
-                  className="block"
-                >
-                  <img
-                    src={answer.photo_url}
-                    alt="Inspection answer"
-                    className="h-28 w-28 rounded-lg object-cover hover:opacity-90"
-                  />
-                </button>
+                    {isEditingSubmission ? (
+                      <>
+                        <div className="mb-4 flex flex-wrap gap-2">
+                          {[
+                            { label: 'Safe', value: 'safe' },
+                            { label: 'Issue', value: 'issue' },
+                            { label: 'Fixed', value: 'fixed' },
+                            { label: 'N/A', value: 'na' }
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                updateEditSubmissionAnswer(answer.id, {
+                                  status: option.value as EditableSubmissionAnswer['status']
+                                })
+                              }
+                              className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                                answer.status === option.value
+                                  ? option.value === 'issue'
+                                    ? 'bg-red-600 text-white'
+                                    : option.value === 'fixed'
+                                      ? 'bg-green-600 text-white'
+                                      : option.value === 'safe'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-700 text-white'
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <textarea
+                          value={answer.note}
+                          onChange={(e) =>
+                            updateEditSubmissionAnswer(answer.id, {
+                              note: e.target.value
+                            })
+                          }
+                          className={`${inputClass} min-h-[110px]`}
+                          placeholder="Add note"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <div className="mb-3">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                              answer.status === 'issue'
+                                ? 'bg-red-600 text-white'
+                                : answer.status === 'fixed'
+                                  ? 'bg-green-600 text-white'
+                                  : answer.status === 'safe'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-600 text-white'
+                            }`}
+                          >
+                            {answer.status.toUpperCase()}
+                          </span>
+                        </div>
+
+                        <p className="mb-3 text-sm text-gray-700">
+                          <span className="font-semibold">Note:</span> {answer.note || '—'}
+                        </p>
+                      </>
+                    )}
+
+                    {answer.photo_url && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedImageUrl(answer.photo_url)}
+                        className="mt-3 block"
+                      >
+                        <img
+                          src={answer.photo_url}
+                          alt="Inspection answer"
+                          className="h-28 w-28 rounded-lg object-cover hover:opacity-90"
+                        />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {isEditingSubmission && (
+                <div className="mt-6">
+                  <button
+                    type="button"
+                    onClick={saveEditedSubmission}
+                    className="rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700"
+                  >
+                    Save Changes
+                  </button>
+                </div>
               )}
             </div>
-          ))}
-      </div>
-    </div>
-  </div>
-)}
+          </div>
+        )}
+
         {loading && (
           <div className="mt-6 rounded-2xl bg-white p-4 text-sm font-medium text-gray-800 shadow">
             Loading inspections...
           </div>
         )}
       </div>
-      {selectedImageUrl && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-    <div className="relative max-h-[90vh] max-w-5xl">
-      <button
-        type="button"
-        onClick={() => setSelectedImageUrl(null)}
-        className="absolute right-2 top-2 rounded-full bg-white px-3 py-1 text-sm font-semibold text-black shadow hover:bg-gray-200"
-      >
-        Close
-      </button>
-
-      <img
-        src={selectedImageUrl}
-        alt="Expanded preview"
-        className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl"
-      />
-    </div>
-  </div>
-)}
     </main>
   )
 }
